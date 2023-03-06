@@ -1,0 +1,6 @@
+[all]
+ldap   ansible_host=163.43.128.57
+
+[all:vars]
+ansible_user=ictsc
+ansible_ssh_private_key_file=~/.ssh/github

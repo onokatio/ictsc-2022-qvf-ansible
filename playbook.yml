@@ -1,0 +1,118 @@
+- name: Ldap Server
+  hosts: ldap
+  become: true
+  tasks:
+    - name: Hostname
+      ansible.builtin.hostname:
+        name: ldap-server
+    - name: Configure sldap debconf
+      ansible.builtin.debconf:
+        name: slapd
+        question: "{{ item.question }}"
+        value: "{{ item.value }}"
+        vtype: "{{ item.vtype }}"
+      loop:
+        - question: 'slapd/internal/adminpw'
+          value: 'ictsc-pw'
+          vtype: password
+        - question: 'slapd/internal/generated_adminpw'
+          value: 'ictsc-pw'
+          vtype: password
+        - question: 'slapd/password1'
+          value: 'ictsc-pw'
+          vtype: password
+        - question: 'slapd/password2'
+          value: 'ictsc-pw'
+          vtype: password
+        - question: 'slapd/domain'
+          value: 'ictsc.net'
+          vtype: string
+        - question: 'slapd/organization'
+          value: 'ictsc-org'
+          vtype: string
+        - question: 'slapd/no_configuration'
+          value: false
+          vtype: boolean
+    - name: Packages latest version
+      ansible.builtin.apt:
+        name:
+          - slapd
+          - ldap-utils
+          - python3-pip
+          - libsasl2-dev
+          - python3-dev
+          - libldap2-dev
+          - libssl-dev
+        update_cache: true
+    - name: Remove default config
+      ansible.builtin.file:
+        path: /var/lib/dpkg/info/slapd.config
+        state: absent
+    - name: Reconfigure slapd
+      ansible.builtin.command: dpkg-reconfigure -f noninteractive slapd
+    - name: Systemd service
+      ansible.builtin.systemd:
+        name: slapd
+        enabled: true
+        state: restarted
+    - name: Pip packages
+      ansible.builtin.pip:
+        name: python-ldap
+    - name: Create entry
+      community.general.ldap_entry:
+        dn: "ou={{ item }},dc=ictsc,dc=net"
+        objectClass:
+          - organizationalUnit
+        bind_dn: cn=admin,dc=ictsc,dc=net
+        bind_pw: ictsc-pw
+      loop:
+        - people
+        - group
+    - name: Create user
+      community.general.ldap_entry:
+        dn: uid=Alice,ou=people,dc=ictsc,dc=net
+        objectClass:
+          - organizationalPerson
+          - posixAccount
+          - shadowAccount
+          - person
+        attributes:
+          sn: alice
+          cn: alice
+          userPassword: "{SSHA}RuvZmBk8nMNutvxdATrdJD5kzKAzCDFy"
+          loginShell: /bin/bash
+          uidNumber: 9999
+          gidNumber: 9999
+          homeDirectory: /tmp/
+          description: This is an example user
+        bind_dn: cn=admin,dc=ictsc,dc=net
+        bind_pw: ictsc-pw
+- name: Ldap client setting
+  hosts: all
+  become: true
+  tasks:
+    - name: Ldap client packages
+      ansible.builtin.apt:
+        name:
+          - libnss-ldap
+          - libpam-ldap
+          - ldap-utils
+        update_cache: true
+    - name: Setup ldap BASE
+      ansible.builtin.lineinfile:
+        path: /etc/ldap.conf
+        regex: '^base'
+        line: 'base            dc=ictsc,dc=net'
+    - name: Setup ldap URI
+      ansible.builtin.lineinfile:
+        path: /etc/ldap.conf
+        regex: '^uri'
+        line: 'uri             ldap://192.168.13.1'
+    - name: Create user user
+      ansible.builtin.user:
+        name: user
+        password: "{{ 'ictsc2022'|password_hash('sha512') }}"
+    - name: Set ssh key
+      ansible.posix.authorized_key:
+        user: user
+        key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEN6KHc7DmIFG66ywUd4pn+UNt73UVdURFoL+Ra7tOMd ictsc2022-user"
